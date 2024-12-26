@@ -41,30 +41,53 @@ def process_folder(folder_path):
 
     return pd.concat(all_data, ignore_index=True)
 
-def calculate_days(data, condition):
+def calculate_days_with_dates(data, condition):
+    """
+    Calculate the number of unique days and list specific days for each sensor based on a condition.
+    """
     filtered_data = data[condition]
     filtered_data['Date'] = filtered_data['Timestamp (UTC)'].dt.date
+    # Group by file and date
     daily_counts = filtered_data.groupby(['File', 'Date']).size().reset_index(name='Count')
-    unique_day_counts = daily_counts.groupby('File')['Date'].nunique()
-    return unique_day_counts[unique_day_counts > 1]
+    # Count unique days and list specific dates
+    grouped = daily_counts.groupby('File')['Date']
+    unique_day_counts = grouped.nunique()
+    specific_dates = grouped.apply(lambda x: ', '.join(map(str, sorted(x.unique()))))
+    return unique_day_counts[unique_day_counts > 1], specific_dates
 
 def generate_summary_table(data):
-    high_values = calculate_days(data, data['PM2.5 (ug/m3)'] > 1000)
-    zero_values = calculate_days(data, data['PM2.5 (ug/m3)'] == 0)
+    """
+    Generate a summary table showing:
+    - Number of days each sensor exceeded PM2.5 > 1000 for more than one day.
+    - Number of days each sensor had PM2.5 = 0 for more than one day.
+    - Specific dates for each condition.
+    """
+    # Calculate days and dates for PM2.5 > 1000
+    high_values, high_dates = calculate_days_with_dates(data, data['PM2.5 (ug/m3)'] > 1000)
+    # Calculate days and dates for PM2.5 = 0
+    zero_values, zero_dates = calculate_days_with_dates(data, data['PM2.5 (ug/m3)'] == 0)
+
+    # Combine results into a single table
     summary = pd.DataFrame({
         'Sensor': high_values.index,
-        'Days with PM2.5 > 1000': high_values.values
+        'Days with PM2.5 > 1000': high_values.values,
+        'Dates with PM2.5 > 1000': high_dates
     }).merge(
         pd.DataFrame({
             'Sensor': zero_values.index,
-            'Days with PM2.5 = 0': zero_values.values
+            'Days with PM2.5 = 0': zero_values.values,
+            'Dates with PM2.5 = 0': zero_dates
         }),
         on='Sensor',
         how='outer'
-    ).fillna(0)
+    ).fillna({'Days with PM2.5 > 1000': 0, 'Days with PM2.5 = 0': 0, 
+              'Dates with PM2.5 > 1000': '', 'Dates with PM2.5 = 0': ''})
+    
+    # Convert to integer for clarity
     summary[['Days with PM2.5 > 1000', 'Days with PM2.5 = 0']] = summary[
         ['Days with PM2.5 > 1000', 'Days with PM2.5 = 0']
     ].astype(int)
+    
     return summary
 
 def main():
@@ -81,8 +104,8 @@ def main():
         else:
             print("\nSummary Table: PM2.5 > 1000 and PM2.5 = 0 for More Than One Day")
             print(summary_table)
-            summary_table.to_csv("summary_table_with_zeros.csv", index=False)
-            print("\nSummary table saved as 'summary_table_with_zeros.csv'.")
+            summary_table.to_csv("summary_table_with_dates.csv", index=False)
+            print("\nSummary table saved as 'summary_table_with_dates.csv'.")
 
 if __name__ == "__main__":
     main()
